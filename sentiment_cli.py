@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-"""
 import argparse
 import re
 import torch
@@ -119,65 +117,70 @@ class SHAPExplainer:
             print(f"  - Done!")
         return importance, target_class
 
-class LRPExplainer:
-    def __init__(self, model, tokenizer, device, epsilon=1e-10):
+class IGExplainer:
+    def __init__(self, model, tokenizer, device):
         self.model = model
         self.tokenizer = tokenizer
         self.device = device
-        self.epsilon = epsilon
 
-    def clean_token(self, token):
-        """Clean RoBERTa tokenizer artifacts"""
-        token = token.replace('Ġ', '').replace('</w>', '')
-        token = token.strip('▁')
-        if token in ['<s>', '</s>', '<pad>', '', 'Ċ']:
-            return None
-        return token
-
-    def explain(self, text, target_class=None, verbose=True):
+    def explain(self, text, target_class=None, n_steps=50, verbose=True):
         inputs = self.tokenizer(text, return_tensors='pt', truncation=True, max_length=64)
         input_ids = inputs['input_ids'].to(self.device)
         attention_mask = inputs['attention_mask'].to(self.device)
 
-        # Get embeddings using the embedding layer
         embedding_layer = self.model.get_input_embeddings()
         embeddings = embedding_layer(input_ids)
-        embeddings = embeddings.detach()
-        embeddings.requires_grad_(True)
 
-        # Forward pass
-        outputs = self.model(inputs_embeds=embeddings, attention_mask=attention_mask)
+        with torch.no_grad():
+            outputs = self.model(inputs_embeds=embeddings, attention_mask=attention_mask)
+            if target_class is None:
+                probs = F.softmax(outputs.logits, dim=-1)
+                target_class = torch.argmax(probs).item()
 
-        if target_class is None:
-            target_class = outputs.logits.argmax().item()
+        baseline = torch.zeros_like(embeddings).to(self.device)
+        scaled_embeddings = [baseline + (float(i) / n_steps) * (embeddings - baseline) for i in range(n_steps + 1)]
 
-        # Backward pass
-        prediction_score = outputs.logits[0, target_class]
-        self.model.zero_grad()
-        if embeddings.grad is not None:
-            embeddings.grad.zero_()
-        prediction_score.backward()
+        total_gradients = torch.zeros_like(embeddings)
 
-        # Compute relevance using gradient * input
-        if embeddings.grad is not None:
-            relevance = (embeddings * embeddings.grad).sum(dim=-1)
-            relevance = relevance.squeeze(0).cpu().detach().numpy()
+        for input_embed in scaled_embeddings:
+            input_embed.requires_grad_(True)
+            outputs = self.model(inputs_embeds=input_embed, attention_mask=attention_mask)
+            score = outputs.logits[0, target_class]
 
-            # Normalize relevance scores
-            max_abs = np.abs(relevance).max()
-            if max_abs > self.epsilon:
-                relevance = relevance / max_abs
-        else:
-            relevance = np.zeros(input_ids.shape[1])
+            self.model.zero_grad()
+            score.backward()
 
-        # Map to tokens
+            if input_embed.grad is not None:
+                total_gradients += input_embed.grad
+
+        avg_gradients = total_gradients / (n_steps + 1)
+        attributions = (embeddings - baseline) * avg_gradients
+        attributions = attributions.sum(dim=-1).squeeze(0).cpu().detach().numpy()
+
         tokens = self.tokenizer.convert_ids_to_tokens(input_ids[0].cpu().numpy())
-        importance = []
-        for token, rel_score in zip(tokens, relevance):
-            cleaned = self.clean_token(token)
-            if cleaned:
-                importance.append((cleaned, float(rel_score)))
 
+        aggregated_features = {}
+        current_word = ""
+        current_score = 0.0
+
+        for token, score in zip(tokens, attributions):
+            clean_tok = token.replace('Ġ', '').replace('</w>', '')
+            if token in ['<s>', '</s>', '<pad>', '']:
+                continue
+
+            if token.startswith('Ġ') or not current_word:
+                if current_word:
+                    aggregated_features[current_word] = aggregated_features.get(current_word, 0) + current_score
+                current_word = clean_tok
+                current_score = score
+            else:
+                current_word += clean_tok
+                current_score += score
+
+        if current_word:
+            aggregated_features[current_word] = aggregated_features.get(current_word, 0) + current_score
+
+        importance = list(aggregated_features.items())
         importance.sort(key=lambda x: abs(x[1]), reverse=True)
 
         if verbose:
@@ -225,11 +228,11 @@ def analyze_sentiment(text, method='all', top_k=10):
         shap_imp, _ = shap_explainer.explain(text, target_class=pred_class)
         print_explanation(shap_imp, "SHAP", top_k)
 
-    if method in ['lrp', 'all']:
-        print("\nGenerating LRP explanation...")
-        lrp_explainer = LRPExplainer(model, tokenizer, device)
-        lrp_imp, _ = lrp_explainer.explain(text, target_class=pred_class)
-        print_explanation(lrp_imp, "LRP", top_k)
+    if method in ['ig', 'all']:
+        print("\nGenerating IG explanation...")
+        ig_explainer = IGExplainer(model, tokenizer, device)
+        ig_imp, _ = ig_explainer.explain(text, target_class=pred_class)
+        print_explanation(ig_imp, "Integrated Gradients", top_k)
 
     print_separator()
 
@@ -241,14 +244,14 @@ def main():
 Examples:
   python sentiment_cli.py "This movie is fantastic!"
   python sentiment_cli.py "Terrible experience" --method lime
-  python sentiment_cli.py "It's okay" --method attention --top 5
+  python sentiment_cli.py "It's okay" --method ig --top 5
   python sentiment_cli.py --interactive
         """
     )
 
     parser.add_argument('text', nargs='?', help='Text to analyze')
     parser.add_argument('-m', '--method',
-                       choices=['lime', 'shap', 'lrp', 'all'],
+                       choices=['lime', 'shap', 'ig', 'all'],
                        default='all',
                        help='Interpretability method to use (default: all)')
     parser.add_argument('-t', '--top', type=int, default=10,
