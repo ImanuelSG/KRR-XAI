@@ -148,7 +148,7 @@ class IGExplainer:
             score = outputs.logits[0, target_class]
 
             self.model.zero_grad()
-            score.backward()
+            score.backward(retain_graph=True)
 
             if input_embed.grad is not None:
                 total_gradients += input_embed.grad
