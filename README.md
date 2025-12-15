@@ -1,78 +1,104 @@
-# KRR-XAI: Sentiment Analysis with Explainability
+# KRR-XAI: Analisis Sentimen dengan Explainability
 
-This project implements a sentiment analysis model using RoBERTa and provides explainability features using LIME, SHAP, and LRP (Layer-wise Relevance Propagation). It allows users to not only classify text sentiment but also understand *why* the model made a specific prediction.
+Proyek ini mengimplementasikan model analisis sentimen menggunakan RoBERTa dan menyediakan fitur explainability menggunakan LIME, SHAP, dan Integrated Gradients (IG). Proyek ini memungkinkan pengguna untuk tidak hanya mengklasifikasikan sentimen teks tetapi juga memahami *mengapa* model membuat prediksi tertentu.
 
-## Features
+## Fitur
 
-*   **Robust Sentiment Classification**: Finetuned RoBERTa model for high-accuracy sentiment analysis.
+*   **Klasifikasi Sentimen yang Robust**: Model RoBERTa yang telah di-finetune untuk analisis sentimen dengan akurasi tinggi.
 *   **Explainable AI (XAI)**:
-    *   **LIME** (Local Interpretable Model-agnostic Explanations): Perturbation-based explanation.
-    *   **SHAP** (SHapley Additive exPlanations): Game theory-based feature importance.
-    *   **LRP** (Layer-wise Relevance Propagation): Gradient-based relevance scoring.
-*   **CLI Interface**: Easy-to-use command-line interface for analyzing text.
-*   **Interactive Mode**: continuous analysis loop for testing multiple inputs.
+    *   **LIME** (Local Interpretable Model-agnostic Explanations): Penjelasan berbasis perturbasi.
+    *   **SHAP** (SHapley Additive exPlanations): Kepentingan fitur berbasis teori permainan.
+    *   **IG** (Integrated Gradients): Metode atribusi berbasis gradien dengan integrasi jalur untuk stabilitas yang lebih baik.
+*   **Antarmuka CLI**: Antarmuka command-line yang mudah digunakan untuk menganalisis teks.
+*   **Mode Interaktif**: Loop analisis berkelanjutan untuk menguji beberapa input.
 
-## Installation
+## Instalasi
 
-This project uses `pyproject.toml` for dependency management.
+Proyek ini menggunakan `pyproject.toml` untuk manajemen dependensi.
 
-### Method 1: Using pip
+### Metode 1: Menggunakan pip
 
 ```bash
 pip install -e .
 ```
 
-### Method 2: Using uv (Recommended for speed)
+### Metode 2: Menggunakan uv (Direkomendasikan untuk kecepatan)
 
-If you have [uv](https://github.com/astral-sh/uv) installed:
+Jika Anda telah menginstal [uv](https://github.com/astral-sh/uv):
 
 ```bash
 uv sync
 ```
 
-## Usage
+## Cara Penggunaan
 
-### 1. Training the Model
+### 1. Unduh Model yang Sudah Dilatih
 
-Before using the CLI, you need to train the model.
+Sebelum menggunakan CLI, Anda perlu mengunduh model RoBERTa yang sudah dilatih:
 
-1.  Ensure you have your dataset in `dataset/train.csv`.
-2.  Run the training notebook `train_roberta_optimized.ipynb`.
-3.  This will save the fine-tuned model to `./best_roberta_model`.
+1.  Unduh file model dari [Google Drive](https://drive.google.com/drive/folders/1uqECfzIyH-bQaLbTNPogf-TxYBo_ej09?usp=sharing)
+2.  Buat folder bernama `best_roberta_model` di direktori root proyek
+3.  Ekstrak semua file model yang diunduh ke dalam folder `best_roberta_model`
 
-### 2. Command-Line Interface (CLI)
+Struktur folder harus terlihat seperti ini:
+```
+KRR-XAI/
+├── best_roberta_model/
+│   ├── config.json
+│   ├── model.safetensors
+│   ├── tokenizer_config.json
+│   ├── vocab.json
+│   ├── merges.txt
+│   ├── special_tokens_map.json
+│   └── label_mappings.json
+├── sentiment_cli.py
+└── ...
+```
 
-Use `sentiment_cli.py` to analyze text.
+### 2. (Opsional) Melatih Model Sendiri
 
-**Basic Usage:**
+Jika Anda ingin melatih model dari awal:
+
+1.  Pastikan Anda memiliki dataset di `dataset/train.csv`.
+2.  Jalankan notebook pelatihan `train_roberta_optimized.ipynb`.
+3.  Ini akan menyimpan model yang telah di-finetune ke `./best_roberta_model`.
+
+### 3. Command-Line Interface (CLI)
+
+Gunakan `sentiment_cli.py` untuk menganalisis teks.
+
+**Penggunaan Dasar:**
 
 ```bash
 python sentiment_cli.py "This movie is absolutely fantastic!"
 ```
 
-**Specify Explainability Method:**
+**Tentukan Metode Explainability:**
 
-Evaluate using specific methods (default is `all`):
+Evaluasi menggunakan metode tertentu (default adalah `all`):
 
 ```bash
 python sentiment_cli.py "The service was terrible but the food was okay." --method lime
 python sentiment_cli.py "The service was terrible but the food was okay." --method shap --top 5
+python sentiment_cli.py "Amazing product!" --method ig
 ```
 
-**Interactive Mode:**
+Metode yang tersedia: `lime`, `shap`, `ig`, `all`
+
+**Mode Interaktif:**
 
 ```bash
 python sentiment_cli.py --interactive
 ```
 
-## Project Structure
+## Struktur Proyek
 
-*   `sentiment_cli.py`: Main CLI tool for inference and explanation.
-*   `train_roberta_optimized.ipynb`: Notebook for training the RoBERTa model.
-*   `XAI_Sentiment_Analysis_lib.ipynb` & `_scratch.ipynb`: Research and experimentation notebooks.
-*   `pyproject.toml`: Project dependencies and configuration.
+*   `sentiment_cli.py`: Tool CLI utama untuk inferensi dan penjelasan.
+*   `train_roberta_optimized.ipynb`: Notebook untuk melatih model RoBERTa.
+*   `XAI_Sentiment_Analysis_lib.ipynb` & `_scratch.ipynb`: Notebook penelitian dan eksperimen.
+*   `pyproject.toml`: Dependensi dan konfigurasi proyek.
 
-## Requirements
+## Persyaratan
 
 *   Python >= 3.9
 *   Torch >= 2.0.0

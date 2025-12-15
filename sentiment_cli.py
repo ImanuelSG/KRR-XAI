@@ -25,7 +25,6 @@ model.eval()
 print(f"Model loaded on {device}\n")
 
 def predict_sentiment_batch(texts):
-    """Predict sentiment for batch of texts"""
     if isinstance(texts, str):
         texts = [texts]
     inputs = tokenizer(texts, return_tensors='pt', padding=True, truncation=True, max_length=64)
@@ -206,7 +205,6 @@ def analyze_sentiment(text, method='all', top_k=10):
     print(f"TEXT: {text}")
     print_separator()
 
-    # Get prediction
     probs = predict_sentiment_batch(text)[0]
     pred_class = np.argmax(probs)
     pred_label = id2label[pred_class]
@@ -219,7 +217,6 @@ def analyze_sentiment(text, method='all', top_k=10):
     for i, prob in enumerate(probs):
         print(f"  {id2label[i]:20s}: {prob:.4f}")
 
-    # Get explanations
     if method in ['lime', 'all']:
         print("\nGenerating LIME explanation...")
         lime_explainer = LIMEExplainer(predict_sentiment_batch, num_samples=1000)
