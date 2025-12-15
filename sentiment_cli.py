@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 """
-Sentiment Analysis CLI
-"""
 import argparse
 import re
 import torch
@@ -14,9 +12,7 @@ from scipy.special import comb
 import warnings
 warnings.filterwarnings('ignore')
 
-# Load model
 model_path = './best_roberta_model'
-print("Loading model...")
 model = AutoModelForSequenceClassification.from_pretrained(model_path)
 tokenizer = RobertaTokenizer.from_pretrained(model_path)
 
@@ -41,17 +37,13 @@ def predict_sentiment_batch(texts):
         probs = F.softmax(outputs.logits, dim=-1)
     return probs.cpu().numpy()
 
-# LIME Explainer
 class LIMEExplainer:
     def __init__(self, predict_fn, num_samples=1000):
         self.predict_fn = predict_fn
         self.num_samples = num_samples
 
     def tokenize(self, text):
-        # Simple word tokenization that separates punctuation
-        # Split on whitespace and separate punctuation
-        words = re.findall(r'\w+|[^\w\s]', text)
-        return words
+        return re.findall(r'\w+|[^\w\s]', text)
 
     def kernel_fn(self, distances):
         return np.sqrt(np.exp(-(distances ** 2) / 25 ** 2))
@@ -60,21 +52,15 @@ class LIMEExplainer:
         words = self.tokenize(text)
         n_words = len(words)
 
-        if verbose:
-            print(f"  - Creating {self.num_samples} perturbations of {n_words} words...")
         perturbations = np.random.binomial(1, 0.5, (self.num_samples, n_words))
         perturbed_texts = [' '.join([w for w, m in zip(words, mask) if m == 1]) or ''
                           for mask in perturbations]
 
-        if verbose:
-            print(f"  - Running {self.num_samples} predictions...")
         predictions = self.predict_fn(perturbed_texts)
 
         if target_class is None:
             target_class = np.argmax(self.predict_fn([text])[0])
 
-        if verbose:
-            print(f"  - Computing importance scores...")
         y = predictions[:, target_class]
         distances = np.sum(1 - perturbations, axis=1)
         weights = self.kernel_fn(distances)
@@ -89,7 +75,6 @@ class LIMEExplainer:
             print(f"  - Done!")
         return importance, target_class
 
-# SHAP Explainer
 class SHAPExplainer:
     def __init__(self, predict_fn, num_samples=500):
         self.predict_fn = predict_fn
@@ -107,14 +92,10 @@ class SHAPExplainer:
         if target_class is None:
             target_class = np.argmax(self.predict_fn([text])[0])
 
-        if verbose:
-            print(f"  - Computing Shapley values ({self.num_samples} samples × {n_words} words = {self.num_samples * n_words * 2} predictions)...")
         empty_pred = self.predict_fn([''])[0, target_class]
         shap_values = np.zeros(n_words)
 
         for idx in range(self.num_samples):
-            if verbose and idx > 0 and idx % 100 == 0:
-                print(f"    Progress: {idx}/{self.num_samples} samples ({idx/self.num_samples*100:.1f}%)")
             z = np.random.binomial(1, 0.5, n_words)
             for i in range(n_words):
                 z_with, z_without = z.copy(), z.copy()
@@ -138,7 +119,6 @@ class SHAPExplainer:
             print(f"  - Done!")
         return importance, target_class
 
-# LRP Explainer
 class LRPExplainer:
     def __init__(self, model, tokenizer, device, epsilon=1e-10):
         self.model = model
@@ -155,8 +135,6 @@ class LRPExplainer:
         return token
 
     def explain(self, text, target_class=None, verbose=True):
-        if verbose:
-            print(f"  - Computing LRP relevance scores...")
         inputs = self.tokenizer(text, return_tensors='pt', truncation=True, max_length=64)
         input_ids = inputs['input_ids'].to(self.device)
         attention_mask = inputs['attention_mask'].to(self.device)
@@ -190,8 +168,6 @@ class LRPExplainer:
             if max_abs > self.epsilon:
                 relevance = relevance / max_abs
         else:
-            if verbose:
-                print("  - Warning: Gradients not computed")
             relevance = np.zeros(input_ids.shape[1])
 
         # Map to tokens
