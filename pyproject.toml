@@ -1,0 +1,12 @@
+[project]
+name = "krr-xai"
+version = "0.1.0"
+description = "Sentiment Analysis with Explainable AI"
+requires-python = ">=3.9"
+dependencies = [
+    "torch>=2.0.0",
+    "transformers>=4.30.0",
+    "numpy>=1.24.0",
+    "scikit-learn>=1.3.0",
+    "scipy>=1.10.0",
+]
