@@ -1,7 +1,7 @@
 [project]
 name = "krr-xai"
 version = "0.1.0"
-description = "Sentiment Analysis with Explainable AI"
+description = "Sentiment Analysis with Interpretability"
 requires-python = ">=3.9"
 dependencies = [
     "torch>=2.0.0",

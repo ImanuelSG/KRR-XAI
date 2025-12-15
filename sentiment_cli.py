@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Sentiment Analysis CLI with Explainable AI
+Sentiment Analysis CLI
 """
 import argparse
 import re
@@ -138,52 +138,70 @@ class SHAPExplainer:
             print(f"  - Done!")
         return importance, target_class
 
-# Integrated Gradients Explainer
-class IntegratedGradientsExplainer:
-    def __init__(self, model, tokenizer, device, n_steps=50):
+# LRP Explainer
+class LRPExplainer:
+    def __init__(self, model, tokenizer, device, epsilon=1e-10):
         self.model = model
         self.tokenizer = tokenizer
         self.device = device
-        self.n_steps = n_steps
+        self.epsilon = epsilon
+
+    def clean_token(self, token):
+        """Clean RoBERTa tokenizer artifacts"""
+        token = token.replace('Ġ', '').replace('</w>', '')
+        token = token.strip('▁')
+        if token in ['<s>', '</s>', '<pad>', '', 'Ċ']:
+            return None
+        return token
 
     def explain(self, text, target_class=None, verbose=True):
         if verbose:
-            print(f"  - Tokenizing and preparing embeddings...")
+            print(f"  - Computing LRP relevance scores...")
         inputs = self.tokenizer(text, return_tensors='pt', truncation=True, max_length=64)
         input_ids = inputs['input_ids'].to(self.device)
         attention_mask = inputs['attention_mask'].to(self.device)
 
-        if target_class is None:
-            with torch.no_grad():
-                target_class = self.model(input_ids=input_ids, attention_mask=attention_mask).logits.argmax().item()
-
-        embeddings = self.model.roberta.embeddings(input_ids)
+        # Get embeddings using the embedding layer
+        embedding_layer = self.model.get_input_embeddings()
+        embeddings = embedding_layer(input_ids)
+        embeddings = embeddings.detach()
         embeddings.requires_grad_(True)
-        baseline = torch.zeros_like(embeddings)
 
-        if verbose:
-            print(f"  - Computing gradients ({self.n_steps + 1} steps)...")
-        gradients = []
-        for i in range(self.n_steps + 1):
-            if verbose and i > 0 and i % 10 == 0:
-                print(f"    Progress: {i}/{self.n_steps + 1} steps ({i/(self.n_steps + 1)*100:.1f}%)")
-            scaled_input = baseline + (float(i) / self.n_steps) * (embeddings - baseline)
-            scaled_input.requires_grad_(True)
+        # Forward pass
+        outputs = self.model(inputs_embeds=embeddings, attention_mask=attention_mask)
 
-            outputs = self.model(inputs_embeds=scaled_input, attention_mask=attention_mask)
-            score = outputs.logits[0, target_class]
-            self.model.zero_grad()
-            score.backward(retain_graph=True)
-            gradients.append(scaled_input.grad.clone())
+        if target_class is None:
+            target_class = outputs.logits.argmax().item()
 
-        if verbose:
-            print(f"  - Aggregating gradients and computing attributions...")
-        avg_gradients = torch.stack(gradients).mean(dim=0)
-        integrated_gradients = (embeddings - baseline) * avg_gradients
-        attributions = integrated_gradients.sum(dim=-1).squeeze(0).cpu().detach().numpy()
+        # Backward pass
+        prediction_score = outputs.logits[0, target_class]
+        self.model.zero_grad()
+        if embeddings.grad is not None:
+            embeddings.grad.zero_()
+        prediction_score.backward()
 
+        # Compute relevance using gradient * input
+        if embeddings.grad is not None:
+            relevance = (embeddings * embeddings.grad).sum(dim=-1)
+            relevance = relevance.squeeze(0).cpu().detach().numpy()
+
+            # Normalize relevance scores
+            max_abs = np.abs(relevance).max()
+            if max_abs > self.epsilon:
+                relevance = relevance / max_abs
+        else:
+            if verbose:
+                print("  - Warning: Gradients not computed")
+            relevance = np.zeros(input_ids.shape[1])
+
+        # Map to tokens
         tokens = self.tokenizer.convert_ids_to_tokens(input_ids[0].cpu().numpy())
-        importance = [(t, a) for t, a in zip(tokens, attributions) if t not in ['<s>', '</s>', '<pad>']]
+        importance = []
+        for token, rel_score in zip(tokens, relevance):
+            cleaned = self.clean_token(token)
+            if cleaned:
+                importance.append((cleaned, float(rel_score)))
+
         importance.sort(key=lambda x: abs(x[1]), reverse=True)
 
         if verbose:
@@ -231,32 +249,32 @@ def analyze_sentiment(text, method='all', top_k=10):
         shap_imp, _ = shap_explainer.explain(text, target_class=pred_class)
         print_explanation(shap_imp, "SHAP", top_k)
 
-    if method in ['ig', 'all']:
-        print("\nGenerating Integrated Gradients explanation...")
-        ig_explainer = IntegratedGradientsExplainer(model, tokenizer, device, n_steps=50)
-        ig_imp, _ = ig_explainer.explain(text, target_class=pred_class)
-        print_explanation(ig_imp, "Integrated Gradients", top_k)
+    if method in ['lrp', 'all']:
+        print("\nGenerating LRP explanation...")
+        lrp_explainer = LRPExplainer(model, tokenizer, device)
+        lrp_imp, _ = lrp_explainer.explain(text, target_class=pred_class)
+        print_explanation(lrp_imp, "LRP", top_k)
 
     print_separator()
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Sentiment Analysis with Explainable AI',
+        description='Sentiment Analysis with Interpretability',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   python sentiment_cli.py "This movie is fantastic!"
   python sentiment_cli.py "Terrible experience" --method lime
-  python sentiment_cli.py "It's okay" --method shap --top 5
+  python sentiment_cli.py "It's okay" --method attention --top 5
   python sentiment_cli.py --interactive
         """
     )
 
     parser.add_argument('text', nargs='?', help='Text to analyze')
     parser.add_argument('-m', '--method',
-                       choices=['lime', 'shap', 'ig', 'all'],
+                       choices=['lime', 'shap', 'lrp', 'all'],
                        default='all',
-                       help='XAI method to use (default: all)')
+                       help='Interpretability method to use (default: all)')
     parser.add_argument('-t', '--top', type=int, default=10,
                        help='Number of top features to show (default: 10)')
     parser.add_argument('-i', '--interactive', action='store_true',
