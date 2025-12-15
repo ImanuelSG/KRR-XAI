@@ -137,21 +137,25 @@ class IGExplainer:
                 probs = F.softmax(outputs.logits, dim=-1)
                 target_class = torch.argmax(probs).item()
 
-        baseline = torch.zeros_like(embeddings).to(self.device)
-        scaled_embeddings = [baseline + (float(i) / n_steps) * (embeddings - baseline) for i in range(n_steps + 1)]
+        baseline = torch.zeros_like(embeddings)
 
         total_gradients = torch.zeros_like(embeddings)
 
-        for input_embed in scaled_embeddings:
-            input_embed.requires_grad_(True)
-            outputs = self.model(inputs_embeds=input_embed, attention_mask=attention_mask)
+        for step in range(n_steps + 1):
+            alpha = float(step) / n_steps
+            interpolated = baseline + alpha * (embeddings - baseline)
+            interpolated.requires_grad_(True)
+
+            outputs = self.model(inputs_embeds=interpolated, attention_mask=attention_mask)
             score = outputs.logits[0, target_class]
 
-            self.model.zero_grad()
-            score.backward(retain_graph=True)
+            score.backward()
 
-            if input_embed.grad is not None:
-                total_gradients += input_embed.grad
+            if interpolated.grad is not None:
+                total_gradients += interpolated.grad.detach()
+
+            if interpolated.grad is not None:
+                interpolated.grad.zero_()
 
         avg_gradients = total_gradients / (n_steps + 1)
         attributions = (embeddings - baseline) * avg_gradients
